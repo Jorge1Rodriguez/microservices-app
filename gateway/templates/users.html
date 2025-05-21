@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title %}Usuarios - Microservices App{% endblock %}
+
+{% block content %}
+<section class="users-section">
+    <h1>Gestión de Usuarios</h1>
+    
+    <div class="actions">
+        <button id="newUserBtn" class="btn primary">Nuevo Usuario</button>
+    </div>
+    
+    <div id="userForm" class="form-container" style="display: none;">
+        <h2>Formulario de Usuario</h2>
+        <form id="saveUserForm">
+            <input type="hidden" id="userId">
+            <div class="form-group">
+                <label for="username">Usuario:</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Contraseña:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label for="fullName">Nombre Completo:</label>
+                <input type="text" id="fullName" name="fullName">
+            </div>
+            <div class="form-group">
+                <label for="role">Rol:</label>
+                <select id="role" name="role">
+                    <option value="user">Usuario</option>
+                    <option value="admin">Administrador</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn primary">Guardar</button>
+                <button type="button" id="cancelBtn" class="btn secondary">Cancelar</button>
+            </div>
+        </form>
+    </div>
+    
+    <div class="users-list">
+        <table id="usersTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Usuario</th>
+                    <th>Email</th>
+                    <th>Nombre</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Los datos se cargarán dinámicamente -->
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<script>
+    // Verificar autenticación y rol
+    const token = localStorage.getItem('token');
+    let userRole = "user"; // Rol por defecto
+    let currentUserId = null;
+    
+    if (!token) {
+        console.log("No hay token, redirigiendo a login");
+        window.location.href = '/login';
+    } else {
+        console.log("Token encontrado:", token);
+        // Decodificar el token para obtener el rol (función simple, no verifica firma)
+        try {
+            const tokenParts = token.split('.');
+            const payload = JSON.parse(atob(tokenParts[1]));
+            userRole = payload.role || "user";
+            currentUserId = payload.sub;
+            console.log("Rol del usuario:", userRole);
+            console.log("ID del usuario:", currentUserId);
+        } catch (e) {
+            console.error("Error al decodificar token:", e);
+        }
+    }
+    
+    // Mostrar/ocultar elementos según el rol
+    document.addEventListener('DOMContentLoaded', function() {
+        // Si no es administrador, ocultar ciertas funcionalidades
+        if (userRole !== "admin") {
+            // Ejemplo: ocultar botón de crear usuario si no es admin
+            const newUserBtn = document.getElementById('newUserBtn');
+            if (newUserBtn) {
+                newUserBtn.style.display = 'none';
+            }
+            
+            // Ocultar selector de rol en el formulario si no es admin
+            const roleSelect = document.getElementById('role');
+            if (roleSelect) {
+                roleSelect.disabled = true;
+                roleSelect.parentElement.style.display = 'none';
+            }
+        }
+    });
+    
+    // Cargar usuarios
+    async function loadUsers() {
+        try {
+            console.log("Cargando usuarios...");
+            const response = await fetch('/api/users', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            console.log("Respuesta de usuarios:", response.status);
+            
+            if (response.ok) {
+                const users = await response.json();
+                console.log("Usuarios recibidos:", users);
+                
+                const tbody = document.querySelector('#usersTable tbody');
+                tbody.innerHTML = '';
+                
+                users.forEach(user => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${user.id}</td>
+                        <td>${user.username}</td>
+                        <td>${user.email}</td>
+                        <td>${user.full_name || ''}</td>
+                        <td>${user.role || 'user'}</td>
+                        <td>${user.is_active ? 'Activo' : 'Inactivo'}</td>
+                        <td>
+                            <button class="btn edit" data-id="${user.id}">Editar</button>
+                            <button class="btn delete" data-id="${user.id}">Eliminar</button>
+                        </td>
+                    `;
+                    
+                    // Si el usuario no es admin y está viendo a un admin, deshabilitar botones
+                    if (userRole !== "admin" && user.role === "admin") {
+                        const buttons = tr.querySelectorAll('.btn');
+                        buttons.forEach(btn => {
+                            btn.disabled = true;
+                            btn.classList.add('disabled');
+                        });
+                    }
+                    
+                    // Si el usuario no es admin y no es su propio perfil, deshabilitar botones
+                    if (userRole !== "admin" && user.id.toString() !== currentUserId) {
+                        const buttons = tr.querySelectorAll('.btn');
+                        buttons.forEach(btn => {
+                            btn.disabled = true;
+                            btn.classList.add('disabled');
+                        });
+                    }
+                    
+                    tbody.appendChild(tr);
+                });
+                
+                // Agregar eventos a los botones
+                document.querySelectorAll('.btn.edit:not(.disabled)').forEach(btn => {
+                    btn.addEventListener('click', editUser);
+                });
+                
+                document.querySelectorAll('.btn.delete:not(.disabled)').forEach(btn => {
+                    btn.addEventListener('click', deleteUser);
+                });
+            } else {
+                console.error('Error al cargar usuarios:', response.status);
+                if (response.status === 401) {
+                    localStorage.removeItem('token');
+                    window.location.href = '/login';
+                }
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    }
+    
+    // Cargar usuarios al iniciar
+    loadUsers();
+    
+    // Mostrar formulario para nuevo usuario
+    document.getElementById('newUserBtn').addEventListener('click', function() {
+        document.getElementById('userForm').style.display = 'block';
+        document.getElementById('saveUserForm').reset();
+        document.getElementById('userId').value = '';
+        
+        // Si no es admin, establecer rol como usuario por defecto
+        if (userRole !== "admin") {
+            document.getElementById('role').value = 'user';
+        }
+    });
+    
+    // Cancelar formulario
+    document.getElementById('cancelBtn').addEventListener('click', function() {
+        document.getElementById('userForm').style.display = 'none';
+    });
+    
+    // Guardar usuario
+    document.getElementById('saveUserForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const userId = document.getElementById('userId').value;
+        const userData = {
+            username: document.getElementById('username').value,
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+            full_name: document.getElementById('fullName').value,
+            role: document.getElementById('role').value  // Incluir el rol seleccionado
+        };
+        
+        try {
+            let url = '/api/users';
+            let method = 'POST';
+            
+            if (userId) {
+                url = `/api/users/${userId}`;
+                method = 'PUT';
+            }
+            
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(userData)
+            });
+            
+            if (response.ok) {
+                document.getElementById('userForm').style.display = 'none';
+                loadUsers();
+            } else {
+                const errorData = await response.json();
+                alert(`Error: ${errorData.detail || 'Error al guardar usuario'}`);
+                console.error('Error al guardar usuario:', errorData);
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    });
+    
+    // Editar usuario
+    async function editUser(e) {
+        const userId = e.target.dataset.id;
+        
+        try {
+            const response = await fetch(`/api/users/${userId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const user = await response.json();
+                
+                document.getElementById('userId').value = user.id;
+                document.getElementById('username').value = user.username;
+                document.getElementById('email').value = user.email;
+                document.getElementById('password').value = '';
+                document.getElementById('fullName').value = user.full_name || '';
+                document.getElementById('role').value = user.role || 'user';
+                
+                document.getElementById('userForm').style.display = 'block';
+                
+                // Si no es admin, deshabilitar cambio de rol
+                if (userRole !== "admin") {
+                    document.getElementById('role').disabled = true;
+                } else {
+                    document.getElementById('role').disabled = false;
+                }
+            } else {
+                console.error('Error al cargar usuario');
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    }
+    
+    // Eliminar usuario
+    async function deleteUser(e) {
+        if (!confirm('¿Está seguro de eliminar este usuario?')) {
+            return;
+        }
+        
+        const userId = e.target.dataset.id;
+        
+        try {
+            const response = await fetch(`/api/users/${userId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                loadUsers();
+            } else {
+                const errorData = await response.json();
+                alert(`Error: ${errorData.detail || 'Error al eliminar usuario'}`);
+                console.error('Error al eliminar usuario:', errorData);
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    }
+</script>
+{% endblock %}

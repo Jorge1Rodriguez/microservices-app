@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Inicio - {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1>Bienvenido a {{ app_name }}</h1>
+    <p>Una aplicación de microservicios con FastAPI</p>
+    <div class="buttons">
+        <a href="/login" class="btn primary">Iniciar Sesión</a>
+    </div>
+</section>
+
+<section class="features">
+    <div class="feature-card">
+        <h2>Servicio de Usuarios</h2>
+        <p>Gestiona usuarios con operaciones CRUD completas</p>
+    </div>
+    <div class="feature-card">
+        <h2>Servicio de Órdenes</h2>
+        <p>Crea y administra órdenes con facilidad</p>
+    </div>
+    <div class="feature-card">
+        <h2>Autenticación JWT</h2>
+        <p>Seguridad mediante tokens JWT</p>
+    </div>
+</section>
+{% endblock %}

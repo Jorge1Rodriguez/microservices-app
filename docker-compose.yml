@@ -1,0 +1,37 @@
+version: '3'
+
+services:
+  gateway:
+    image: jorett7/microservices-gateway:latest
+    build:
+      context: ./gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - USERS_SERVICE_URL=http://users_service:8001/api
+      - ORDERS_SERVICE_URL=http://orders_service:8002/api
+    depends_on:
+      - users_service
+      - orders_service
+
+  users_service:
+    image: jorett7/microservices-users:latest
+    build:
+      context: ./users_service
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+
+  orders_service:
+    image: jorett7/microservices-orders:latest
+    build:
+      context: ./orders_service
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+
+volumes:
+  users_data:
+  orders_data:

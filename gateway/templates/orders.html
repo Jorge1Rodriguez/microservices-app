@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+
+{% block title %}Órdenes - Microservices App{% endblock %}
+
+{% block content %}
+<section class="orders-section">
+    <h1>Gestión de Órdenes</h1>
+    
+    <div class="actions">
+        <button id="newOrderBtn" class="btn primary">Nueva Orden</button>
+    </div>
+    
+    <div id="orderForm" class="form-container" style="display: none;">
+        <h2>Formulario de Orden</h2>
+        <form id="saveOrderForm">
+            <input type="hidden" id="orderId">
+            <div class="form-group">
+                <label for="products">Productos:</label>
+                <div id="productsList">
+                    <div class="product-item">
+                        <input type="text" name="productName[]" placeholder="Nombre del producto" required>
+                        <input type="number" name="productPrice[]" placeholder="Precio" step="0.01" min="0" required>
+                        <input type="number" name="productQuantity[]" placeholder="Cantidad" min="1" value="1" required>
+                        <button type="button" class="btn remove-product">Eliminar</button>
+                    </div>
+                </div>
+                <button type="button" id="addProductBtn" class="btn secondary">Agregar Producto</button>
+            </div>
+            <div class="form-group">
+                <label for="status">Estado:</label>
+                <select id="status" name="status">
+                    <option value="pending">Pendiente</option>
+                    <option value="processing">En Proceso</option>
+                    <option value="completed">Completado</option>
+                    <option value="cancelled">Cancelado</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn primary">Guardar</button>
+                <button type="button" id="cancelOrderBtn" class="btn secondary">Cancelar</button>
+            </div>
+        </form>
+    </div>
+    
+    <div class="orders-list">
+        <table id="ordersTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Usuario</th>
+                    <th>Fecha</th>
+                    <th>Productos</th>
+                    <th>Total</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Los datos se cargarán dinámicamente -->
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<script>
+    // Verificar autenticación y rol
+    const token = localStorage.getItem('token');
+    let userRole = "user"; // Rol por defecto
+    let currentUserId = null;
+    
+    if (!token) {
+        console.log("No hay token, redirigiendo a login");
+        window.location.href = '/login';
+    } else {
+        console.log("Token encontrado:", token);
+        // Decodificar el token para obtener el rol (función simple, no verifica firma)
+        try {
+            const tokenParts = token.split('.');
+            const payload = JSON.parse(atob(tokenParts[1]));
+            userRole = payload.role || "user";
+            currentUserId = payload.sub;
+            console.log("Rol del usuario:", userRole);
+            console.log("ID del usuario:", currentUserId);
+        } catch (e) {
+            console.error("Error al decodificar token:", e);
+        }
+    }
+    
+    // Cargar órdenes
+    async function loadOrders() {
+        try {
+            const response = await fetch('/api/orders', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const orders = await response.json();
+                const tbody = document.querySelector('#ordersTable tbody');
+                tbody.innerHTML = '';
+                
+                orders.forEach(order => {
+                    const tr = document.createElement('tr');
+                    
+                    // Formatear fecha
+                    const date = new Date(order.created_at);
+                    const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                    
+                    // Formatear productos
+                    const productsText = order.products.map(p => 
+                        `${p.name} (${p.quantity} x $${p.price.toFixed(2)})`
+                    ).join(', ');
+                    
+                    // Formatear estado
+                    let statusText = '';
+                    switch(order.status) {
+                        case 'pending': statusText = 'Pendiente'; break;
+                        case 'processing': statusText = 'En Proceso'; break;
+                        case 'completed': statusText = 'Completado'; break;
+                        case 'cancelled': statusText = 'Cancelado'; break;
+                        default: statusText = order.status;
+                    }
+                    
+                    tr.innerHTML = `
+                        <td>${order.id}</td>
+                        <td>${order.user_id}</td>
+                        <td>${formattedDate}</td>
+                        <td>${productsText}</td>
+                        <td>$${order.total_amount.toFixed(2)}</td>
+                        <td>${statusText}</td>
+                        <td>
+                            <button class="btn edit" data-id="${order.id}">Editar</button>
+                            <button class="btn delete" data-id="${order.id}">Eliminar</button>
+                        </td>
+                    `;
+                    
+                    // Si el usuario no es admin y no es su propia orden, deshabilitar botones
+                    if (userRole !== "admin" && order.user_id.toString() !== currentUserId) {
+                        const buttons = tr.querySelectorAll('.btn');
+                        buttons.forEach(btn => {
+                            btn.disabled = true;
+                            btn.classList.add('disabled');
+                        });
+                    }
+                    
+                    tbody.appendChild(tr);
+                });
+                
+                // Agregar eventos a los botones
+                document.querySelectorAll('.btn.edit:not(.disabled)').forEach(btn => {
+                    btn.addEventListener('click', editOrder);
+                });
+                
+                document.querySelectorAll('.btn.delete:not(.disabled)').forEach(btn => {
+                    btn.addEventListener('click', deleteOrder);
+                });
+            } else {
+                console.error('Error al cargar órdenes');
+                if (response.status === 401) {
+                    localStorage.removeItem('token');
+                    window.location.href = '/login';
+                }
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    }
+    
+    // Cargar órdenes al iniciar
+    loadOrders();
+    
+    // Mostrar formulario para nueva orden
+    document.getElementById('newOrderBtn').addEventListener('click', function() {
+        document.getElementById('orderForm').style.display = 'block';
+        document.getElementById('saveOrderForm').reset();
+        document.getElementById('orderId').value = '';
+        
+        // Limpiar lista de productos excepto el primero
+        const productsList = document.getElementById('productsList');
+        while (productsList.children.length > 1) {
+            productsList.removeChild(productsList.lastChild);
+        }
+    });
+    
+    // Cancelar formulario
+    document.getElementById('cancelOrderBtn').addEventListener('click', function() {
+        document.getElementById('orderForm').style.display = 'none';
+    });
+    
+    // Agregar producto
+    document.getElementById('addProductBtn').addEventListener('click', function() {
+        const productsList = document.getElementById('productsList');
+        const newProduct = document.createElement('div');
+        newProduct.className = 'product-item';
+        newProduct.innerHTML = `
+            <input type="text" name="productName[]" placeholder="Nombre del producto" required>
+            <input type="number" name="productPrice[]" placeholder="Precio" step="0.01" min="0" required>
+            <input type="number" name="productQuantity[]" placeholder="Cantidad" min="1" value="1" required>
+            <button type="button" class="btn remove-product">Eliminar</button>
+        `;
+        productsList.appendChild(newProduct);
+        
+        // Agregar evento al botón de eliminar
+        newProduct.querySelector('.remove-product').addEventListener('click', function() {
+            productsList.removeChild(newProduct);
+        });
+    });
+    
+    // Agregar evento a los botones de eliminar producto existentes
+    document.querySelectorAll('.remove-product').forEach(btn => {
+        btn.addEventListener('click', function() {
+            if (document.querySelectorAll('.product-item').length > 1) {
+                this.parentElement.remove();
+            }
+        });
+    });
+    
+    // Guardar orden
+    document.getElementById('saveOrderForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const orderId = document.getElementById('orderId').value;
+        
+        // Recopilar productos
+        const productNames = Array.from(document.getElementsByName('productName[]')).map(el => el.value);
+        const productPrices = Array.from(document.getElementsByName('productPrice[]')).map(el => parseFloat(el.value));
+        const productQuantities = Array.from(document.getElementsByName('productQuantity[]')).map(el => parseInt(el.value));
+        
+        const products = productNames.map((name, i) => ({
+            id: i + 1,
+            name: name,
+            price: productPrices[i],
+            quantity: productQuantities[i]
+        }));
+        
+        // Calcular total
+        const totalAmount = products.reduce((total, product) => 
+            total + (product.price * product.quantity), 0);
+        
+        const orderData = {
+            products: products,
+            total_amount: totalAmount,
+            status: document.getElementById('status').value
+        };
+        
+        try {
+            let url = '/api/orders';
+            let method = 'POST';
+            
+            if (orderId) {
+                url = `/api/orders/${orderId}`;
+                method = 'PUT';
+                orderData.id = parseInt(orderId);
+            }
+            
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(orderData)
+            });
+            
+            if (response.ok) {
+                document.getElementById('orderForm').style.display = 'none';
+                loadOrders();
+            } else {
+                const errorData = await response.json();
+                alert(`Error: ${errorData.detail || 'Error al guardar orden'}`);
+                console.error('Error al guardar orden:', errorData);
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    });
+    
+    // Editar orden
+    async function editOrder(e) {
+        const orderId = e.target.dataset.id;
+        
+        try {
+            const response = await fetch(`/api/orders/${orderId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const order = await response.json();
+                
+                document.getElementById('orderId').value = order.id;
+                document.getElementById('status').value = order.status;
+                
+                // Limpiar lista de productos
+                const productsList = document.getElementById('productsList');
+                productsList.innerHTML = '';
+                
+                // Agregar productos
+                order.products.forEach(product => {
+                    const productItem = document.createElement('div');
+                    productItem.className = 'product-item';
+                    productItem.innerHTML = `
+                        <input type="text" name="productName[]" value="${product.name}" placeholder="Nombre del producto" required>
+                        <input type="number" name="productPrice[]" value="${product.price}" placeholder="Precio" step="0.01" min="0" required>
+                        <input type="number" name="productQuantity[]" value="${product.quantity}" placeholder="Cantidad" min="1" required>
+                        <button type="button" class="btn remove-product">Eliminar</button>
+                    `;
+                    productsList.appendChild(productItem);
+                    
+                    // Agregar evento al botón de eliminar
+                    productItem.querySelector('.remove-product').addEventListener('click', function() {
+                        if (document.querySelectorAll('.product-item').length > 1) {
+                            productsList.removeChild(productItem);
+                        }
+                    });
+                });
+                
+                document.getElementById('orderForm').style.display = 'block';
+            } else {
+                console.error('Error al cargar orden');
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    }
+    
+    // Eliminar orden
+    async function deleteOrder(e) {
+        if (!confirm('¿Está seguro de eliminar esta orden?')) {
+            return;
+        }
+        
+        const orderId = e.target.dataset.id;
+        
+        try {
+            const response = await fetch(`/api/orders/${orderId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                loadOrders();
+            } else {
+                const errorData = await response.json();
+                alert(`Error: ${errorData.detail || 'Error al eliminar orden'}`);
+                console.error('Error al eliminar orden:', errorData);
+            }
+        } catch (error) {
+            console.error('Error de conexión', error);
+        }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,46 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - "main"
+      - "master"
+
+jobs:
+  build-and-push:
+    name: Push Docker images to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.ACCESS_TOKEN }}
+
+      - name: Build and push gateway image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./gateway
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/microservices-gateway:latest
+
+      - name: Build and push users service image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./users_service
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/microservices-users:latest
+
+      - name: Build and push orders service image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./orders_service
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/microservices-orders:latest
