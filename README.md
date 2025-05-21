@@ -65,7 +65,7 @@ text
 
 El proyecto incluye configuración para CI/CD con GitHub Actions. Cada push a las ramas main o master desencadenará:
 1. Ejecución de pruebas
-2. Construcción de imágenes Docker
+2. Construcción de imágenes Docker por cada mircroservicio
 3. Publicación de imágenes en Docker Hub
 
 ## Usuarios Predeterminados
