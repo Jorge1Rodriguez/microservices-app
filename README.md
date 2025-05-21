@@ -71,4 +71,8 @@ El proyecto incluye configuración para CI/CD con GitHub Actions. Cada push a la
 ## Usuarios Predeterminados
 
 - Admin: username=admin, password=admin123
+<<<<<<< HEAD
 - Usuario: username=user, password=user123
+=======
+- Usuario: username=user, password=user123
+>>>>>>> b47b81a7c6e6341c979143cd1b32b6a14e735876
